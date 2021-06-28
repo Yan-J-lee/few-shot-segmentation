@@ -130,3 +130,6 @@ dmypy.json
 
 # log
 runs/
+
+# pre-trained model
+pretrained_model/

@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import MultiStepLR
-import torch.backends.cudnn as cudnn
 from torchvision.transforms import Compose
 from torch.utils.tensorboard import SummaryWriter
 
@@ -17,15 +16,13 @@ from dataset.transforms import RandomMirror, Resize, ToTensorNormalize
 from util.utils import set_seed, CLASS_LABELS
 import config
 
-def main():
+def train():
     # reproducibility
     set_seed(config.seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = False
 
     # create model
     print('##### Create Model #####')
-    model = FewShotSegNet().cuda()
+    model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
     model.train()
 
     # prepare data
@@ -36,6 +33,7 @@ def main():
         RandomMirror()
     ])
 
+    n_ways, n_shots, n_queries = config.task['n_ways'], config.task['n_shots'], config.task['n_queries']
     dataset = voc_fewshot(
         base_dir=config.path['data_dir'],
         split=config.path['data_split'],
@@ -43,9 +41,9 @@ def main():
         to_tensor=ToTensorNormalize(),
         labels=labels,
         max_iters=config.n_steps*config.batch_size,
-        n_ways=config.task['n_ways'],
-        n_shots=config.task['n_shots'],
-        n_queries=config.task['n_queries']
+        n_ways=n_ways,
+        n_shots=n_shots,
+        n_queries=n_queries
     )
     print(f'Num of data: {len(dataset)}')
     trainloader = DataLoader(
@@ -63,8 +61,11 @@ def main():
     criterion = nn.CrossEntropyLoss(ignore_index=config.ignore_label)
 
     # set logger
-    logdir = config.path['log_dir']
+    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots')
     logger = SummaryWriter(log_dir=logdir)
+    save_path = f'{logdir}/checkpoints'
+    if not os.path.isdir(save_path):
+        os.mkdir(save_path)
 
     # start training
     i_iter = 0
@@ -106,8 +107,7 @@ def main():
 
         if (i_iter + 1) % config.save_pred_every == 0:
             print('###### Save model ######')
-            torch.save(model.state_dict(),
-                       os.path.join(f'{logdir}/checkpoints', f'{i_iter + 1}.pth'))
+            torch.save(model.state_dict(), os.path.join(save_path, f'{i_iter + 1}.pth'))
 
 if __name__ == '__main__':
-    main()
+    train()

@@ -58,8 +58,15 @@ class Encoder(nn.Module):
 
     def _init_weights(self):
         if self.pretrained_path:
-            state_dict = torch.load(self.pretrained_path, map_location='cpu')
-            self.load_state_dict(state_dict)
+            dic = torch.load(self.pretrained_path, map_location='cpu')
+            keys = list(dic.keys())
+            new_dic = self.state_dict()
+            new_keys = list(new_dic.keys())
+
+            for i in range(26):
+                new_dic[new_keys[i]] = dic[keys[i]]
+
+            self.load_state_dict(new_dic)
         else:
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):

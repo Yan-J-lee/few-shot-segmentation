@@ -30,7 +30,7 @@ if mode == 'train':
 
 elif mode == 'test':
     notrain = False
-    snapshot = './runs/PANet_VOC_sets_0_1way_1shot_[train]/1/snapshots/30000.pth'
+    snapshot = './runs/1_ways_1_shots/checkpoints/30000.pth'
     n_runs = 5
     n_steps = 1000
     batch_size = 1
@@ -54,18 +54,17 @@ elif mode == 'test':
 
     # Set task config from the snapshot string
     task = {
-        'n_ways': int(re.search("[0-9]+way", snapshot).group(0)[:-3]),
-        'n_shots': int(re.search("[0-9]+shot", snapshot).group(0)[:-4]),
+        'n_ways': 1,
+        'n_shots': 1,
         'n_queries': 1,
     }
-
 else:
     raise ValueError('Wrong configuration for "mode" !')
 
 
 path = {
     'log_dir': './runs',
-    'init_path': None,
+    'init_path': './pretrained_model/vgg16-397923af.pth',
     'data_dir': '../data/VOCdevkit/VOC2012/',
     'data_split': 'trainaug',
 }
