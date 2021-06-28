@@ -50,7 +50,7 @@ elif mode == 'test':
         model[key] = key in snapshot
 
     # Set label_sets from the snapshot string
-    label_sets = int(snapshot.split('_sets_')[1][0])
+    label_sets = 0
 
     # Set task config from the snapshot string
     task = {

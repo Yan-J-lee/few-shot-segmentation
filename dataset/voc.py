@@ -8,6 +8,7 @@ import random
 import numpy as np
 from PIL import Image
 import torch
+from torchvision import transforms
 
 try:
     from .common import BaseDataset, PairedDataset
@@ -195,14 +196,14 @@ def fewShot(paired_sample, n_ways, n_shots, cnt_query):
     # BG class
     query_masks = [[torch.where(query_label == 0,
                                 torch.ones_like(query_label),
-                                torch.zeros_like(query_label))[None, ...],]
+                                torch.zeros_like(query_label)),]
                    for query_label in query_labels]
     # Other classes in query image
     for i, query_label in enumerate(query_labels):
         for idx in query_cls_idx[i][1:]:
             mask = torch.where(query_label == class_ids[idx - 1],
                                torch.ones_like(query_label),
-                               torch.zeros_like(query_label))[None, ...]
+                               torch.zeros_like(query_label))
             query_masks[i].append(mask)
 
 
