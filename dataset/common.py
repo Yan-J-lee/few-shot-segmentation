@@ -183,7 +183,7 @@ class PairedDataset(Dataset):
                                  for dataset_idx in random.sample(range(self.n_datasets),
                                                                   k=n_elements)]
                                 for i in range(max_iters)]
-            print(self.indices)
+    
     def __len__(self):
         return self.max_iters
 

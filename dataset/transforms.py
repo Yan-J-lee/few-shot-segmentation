@@ -60,25 +60,6 @@ class Resize(object):
         sample['scribble'] = scribble
         return sample
 
-class DilateScribble(object):
-    """
-    Dilate the scribble mask
-
-    Args:
-        size: window width
-    """
-    def __init__(self, size):
-        self.size = size
-
-    def __call__(self, sample):
-        scribble = sample['scribble']
-        dilated_scribble = Image.fromarray(
-            ndimage.minimum_filter(np.array(scribble), size=self.size))
-        dilated_scribble.putpalette(scribble.getpalette())
-
-        sample['scribble'] = dilated_scribble
-        return sample
-
 class ToTensorNormalize(object):
     """
     Convert images/masks to torch.Tensor

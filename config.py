@@ -5,7 +5,7 @@ import re
 input_size = (417, 417)
 seed = 1234
 gpu_id = 0
-mode = 'train' # 'train' or 'test'
+mode = 'test' # 'train' or 'test'
 
 if mode == 'train':
     n_steps = 30000
@@ -37,17 +37,6 @@ elif mode == 'test':
     scribble_dilation = 0
     bbox = False
     scribble = False
-
-    # Set dataset config from the snapshot string
-    if 'VOC' in snapshot:
-        dataset = 'VOC'
-    else:
-        raise ValueError('Wrong snapshot name !')
-
-    # Set model config from the snapshot string
-    model = {}
-    for key in ['align',]:
-        model[key] = key in snapshot
 
     # Set label_sets from the snapshot string
     label_sets = 0

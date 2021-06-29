@@ -9,11 +9,10 @@ import torch.optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose
-from torch.utils.tensorboard import SummaryWriter
 
 from models.fewshot import FewShotSegNet
 from dataset.voc import voc_fewshot
-from dataset.transforms import ToTensorNormalize, Resize, DilateScribble
+from dataset.transforms import ToTensorNormalize, Resize
 from util.metric import Metric
 from util.utils import set_seed, CLASS_LABELS, get_bbox
 import config
@@ -35,9 +34,6 @@ def test():
     transforms = Compose([
         Resize(size=config.input_size)
     ])
-
-    # logger
-    logger = SummaryWriter(os.path.join(config.path['logdir'], 'eval'))
 
     print('##### Testing Begins #####')
     metric = Metric(max_label=20, n_runs=config.n_runs)
@@ -92,37 +88,24 @@ def test():
                 query_labels = torch.cat(
                     [query_label.cuda()for query_label in sample_batch['query_labels']], dim=0)
 
-                query_pred, _ = model(support_images, support_fg_mask, support_bg_mask,
+                query_pred = model(support_images, support_fg_mask, support_bg_mask,
                                       query_images)
 
                 metric.record(np.array(query_pred.argmax(dim=1)[0].cpu()),
                               np.array(query_labels[0].cpu()),
                               labels=label_ids, n_run=run)
         
-        classIoU, meanIoU = metric.get_mIoU(labels=sorted(labels), n_run=run)
-        classIoU_binary, meanIoU_binary = metric.get_mIoU_binary(n_run=run)
-
-        logger.add_scalar('classIoU', classIoU.tolist(), global_step=run)
-        logger.add_scalar('meanIoU', meanIoU.tolist(), global_step=run)
-        logger.add_scalar('classIoU_binary', classIoU_binary.tolist(), global_step=run)
-        logger.add_scalar('meanIoU_binary', meanIoU_binary.tolist(), global_step=run)
-        print(f'classIoU: {classIoU}')
-        print(f'meanIoU: {meanIoU}')
-        print(f'classIoU_binary: {classIoU_binary}')
-        print(f'meanIoU_binary: {meanIoU_binary}')
+            classIoU, meanIoU = metric.get_mIoU(labels=sorted(labels), n_run=run)
+            classIoU_binary, meanIoU_binary = metric.get_mIoU_binary(n_run=run)
+            print(f'classIoU: {classIoU}')
+            print(f'meanIoU: {meanIoU}')
+            print(f'classIoU_binary: {classIoU_binary}')
+            print(f'meanIoU_binary: {meanIoU_binary}')
 
     classIoU, classIoU_std, meanIoU, meanIoU_std = metric.get_mIoU(labels=sorted(labels))
     classIoU_binary, classIoU_std_binary, meanIoU_binary, meanIoU_std_binary = metric.get_mIoU_binary()
 
     print('----- Final Result -----')
-    logger.add_scalar('final_classIoU', classIoU.tolist())
-    logger.add_scalar('final_classIoU_std', classIoU_std.tolist())
-    logger.add_scalar('final_meanIoU', meanIoU.tolist())
-    logger.add_scalar('final_meanIoU_std', meanIoU_std.tolist())
-    logger.add_scalar('final_classIoU_binary', classIoU_binary.tolist())
-    logger.add_scalar('final_classIoU_std_binary', classIoU_std_binary.tolist())
-    logger.add_scalar('final_meanIoU_binary', meanIoU_binary.tolist())
-    logger.add_scalar('final_meanIoU_std_binary', meanIoU_std_binary.tolist())
     print(f'classIoU mean: {classIoU}')
     print(f'classIoU std: {classIoU_std}')
     print(f'meanIoU mean: {meanIoU}')
