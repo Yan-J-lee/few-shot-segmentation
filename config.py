@@ -5,8 +5,8 @@ import re
 input_size = (417, 417)
 seed = 1234
 gpu_id = 0
-mode = 'test' # 'train' or 'test'
-
+mode = 'train' # 'train' or 'test'
+mode_type = 'metric' # 'metric' or 'fewshot'
 if mode == 'train':
     n_steps = 30000
     label_sets = 0
@@ -14,8 +14,8 @@ if mode == 'train':
     lr_milestones = [10000, 20000, 30000]
     ignore_label = 255
     print_interval = 100
-    save_pred_every = 10000
-
+    save_pred_every = 5000
+    n_samples = 500 # number of samples in each batch for metric learning
     task = {
         'n_ways': 1,
         'n_shots': 1,

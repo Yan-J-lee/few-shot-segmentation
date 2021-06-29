@@ -1,5 +1,5 @@
 """
-Few-Shot Image Semantic Segmentation Network
+Few-Shot Image Semantic Segmentation Network Trained With Deep Metric Learning
 """
 import torch
 import torch.nn as nn
@@ -10,9 +10,9 @@ try:
 except:
     from vgg import Encoder
 
-class FewShotSegNet(nn.Module):
+class MetricSegNet(nn.Module):
     """
-    FewShotSegNet: Few-Shot Image Semantic Segmentation Model
+    MetricSegNet: Few-Shot Image Semantic Segmentation Model Trained With Deep Metric Learning
 
     Args:
         in_channels: number of input channels
@@ -73,8 +73,8 @@ class FewShotSegNet(nn.Module):
             # compute distance
             prototypes = [bg_prototypes,] + fg_prototypes # (ways+1)x[1, C]
             dist = [self.calculate_dist(qry_fts[:, episode], prototype) for prototype in prototypes] # (ways+1)x[queries, Hf, Wf]
-            pred = torch.stack(dist, dim=1) # [queries, way+1, Hf, Wf]
-            outputs.append(F.interpolate(pred, size=(H, W), mode='bilinear', align_corners=True))
+            dist = torch.stack(dist, dim=1) # [queries, way+1, Hf, Wf]
+            outputs.append(F.interpolate(dist, size=(H, W), mode='bilinear', align_corners=True))
 
         output = torch.stack(outputs, dim=1) # [queries, B, ways+1, H, W]
         output = output.view(-1, *output.shape[2:]) # [queries*B, ways+1, H, W]
@@ -125,13 +125,3 @@ class FewShotSegNet(nn.Module):
         """
         dist = F.cosine_similarity(fts, prototype.unsqueeze(-1).unsqueeze(-1), dim=1) * scaler
         return dist
-
-# sanity check
-if __name__ == '__main__':
-    net = FewShotSegNet().cuda()
-    support_imgs = [[torch.rand(2, 3, 128, 128).cuda()], [torch.rand(2, 3, 128, 128).cuda()]]
-    fore_mask = [[torch.rand(2, 128, 128).cuda()], [torch.rand(2, 128, 128).cuda()]]
-    back_mask = [[torch.rand(2, 128, 128).cuda()], [torch.rand(2, 128, 128).cuda()]]
-    qry_imgs = [torch.rand(2, 3, 128, 128).cuda()]
-    out = net(support_imgs, fore_mask, back_mask, qry_imgs)
-    print(out.shape)

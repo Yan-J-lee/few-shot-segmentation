@@ -1,28 +1,34 @@
-import enum
 import os
-import shutil
+import numpy as np
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import MultiStepLR
 from torchvision.transforms import Compose
+from pytorch_metric_learning import losses
 from torch.utils.tensorboard import SummaryWriter
 
 from models.fewshot import FewShotSegNet
+from models.metric import MetricSegNet
 from dataset.voc import voc_fewshot
 from dataset.transforms import RandomMirror, Resize, ToTensorNormalize
 from util.utils import set_seed, CLASS_LABELS
 import config
 
 def train():
+    assert config.mode_type in ['fewshot', 'metric'] # sanity check
     # reproducibility
     set_seed(config.seed)
 
     # create model
     print('##### Create Model #####')
-    model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
+    if config.mode_type == 'fewshot':
+        model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
+    elif config.mode_type == 'metric':
+        model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
     model.train()
 
     # prepare data
@@ -58,10 +64,13 @@ def train():
     print('##### Set optimizer #####')
     optimizer = torch.optim.SGD(model.parameters(), **config.optim)
     scheduler = MultiStepLR(optimizer, milestones=config.lr_milestones, gamma=0.1)
-    criterion = nn.CrossEntropyLoss(ignore_index=config.ignore_label)
+    if config.mode_type == 'fewshot':
+        criterion = nn.CrossEntropyLoss(ignore_index=config.ignore_label)
+    elif config.mode_type == 'metric':
+        criterion = losses.TripletMarginLoss()
 
     # set logger
-    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots')
+    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots', config.mode_type)
     logger = SummaryWriter(log_dir=logdir)
     save_path = f'{logdir}/checkpoints'
     if not os.path.isdir(save_path):
@@ -83,13 +92,24 @@ def train():
         query_images = [query_image.cuda()
                         for query_image in sampled_batch['query_images']]
         query_labels = torch.cat(
-            [query_label.long().cuda() for query_label in sampled_batch['query_labels']], dim=0)
+            [query_label.long().cuda() for query_label in sampled_batch['query_labels']], dim=0) # [queries*B, H, W]
 
         # Forward and Backward
         optimizer.zero_grad()
         query_pred = model(support_images, support_fg_mask, support_bg_mask,
-                                       query_images)
-        query_loss = criterion(query_pred, query_labels)
+                                       query_images) # [queries*B, ways+1, H, W]
+        if config.mode_type == 'fewshot':
+            query_loss = criterion(query_pred, query_labels)
+        elif config.mode_type == 'metric':
+            query_labels = query_labels.flatten() # [queries*B*H*W]
+            query_pred = query_pred.view(-1, n_ways+1).contiguous() # [queries*B*H*W, ways+1]
+            # filter out the unknown label
+            query_labels_filtered = query_labels[query_labels != config.ignore_label]
+            query_pred_filtered = query_pred[query_labels != config.ignore_label]
+            # random select n_samples to compute the metric loss to avoid out of memory
+            indices = np.random.choice(len(query_labels_filtered), size=config.n_samples, replace=False)
+            query_loss = criterion(query_pred_filtered[indices], query_labels_filtered[indices])
+        
         loss = query_loss
         loss.backward()
         optimizer.step()
