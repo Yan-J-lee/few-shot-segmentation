@@ -7,23 +7,30 @@ import numpy as np
 import torch
 import torch.optim
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose
 
 from models.fewshot import FewShotSegNet
+from models.metric import MetricSegNet
 from dataset.voc import voc_fewshot
 from dataset.transforms import ToTensorNormalize, Resize
 from util.metric import Metric
-from util.utils import set_seed, CLASS_LABELS, get_bbox
+from util.utils import set_seed, CLASS_LABELS, knn_predict
 import config
 
 def test():
+    # sanity check
+    assert config.mode_type in ['fewshot', 'metric'], f'Unknown model type {config.mode_type}'
     # reproducibility
     set_seed(config.seed)
 
     # create model
     print('##### Create Model #####')
-    model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
+    if config.mode_type == 'flowshot':
+        model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
+    elif config.mode_type == 'metric':
+        model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
     if not config.notrain:
         model.load_state_dict(torch.load(config.snapshot))
     model.eval()
@@ -59,42 +66,46 @@ def test():
             print(f'Total num of Data: {len(dataset)}')
 
             for sample_batch in tqdm.tqdm(testloader):
-                label_ids = list(sample_batch['class_ids'])
-                support_images = [[shot.cuda() for shot in way] for way in sample_batch['support_images']]
-
-                suffix = 'scribble' if config.scribble else 'mask'
-
-                if config.bbox:
-                    support_fg_mask = []
-                    support_bg_mask = []
-                    for i, way in enumerate(sample_batch['support_mask']):
-                        fg_masks = []
-                        bg_masks = []
-                        for j, shot in enumerate(way):
-                            fg_mask, bg_mask = get_bbox(shot['fg_mask'],
-                                                        sample_batch['support_inst'][i][j])
-                            fg_masks.append(fg_mask.float().cuda())
-                            bg_masks.append(bg_mask.float().cuda())
-                        support_fg_mask.append(fg_masks)
-                        support_bg_mask.append(bg_masks)
-                else:
-                    support_fg_mask = [[shot[f'fg_{suffix}'].float().cuda() for shot in way]
-                                       for way in sample_batch['support_mask']]
-                    support_bg_mask = [[shot[f'bg_{suffix}'].float().cuda() for shot in way]
-                                       for way in sample_batch['support_mask']]
-
+                label_ids = list(sample_batch['class_ids']) # ways
+                support_images = [[shot.cuda() for shot in way] for way in sample_batch['support_images']] # ways x shots x [B, 3, H, W]
+                
                 query_images = [query_image.cuda()
-                                for query_image in sample_batch['query_images']]
+                                for query_image in sample_batch['query_images']] # queries x [B, 3, H, W]
                 query_labels = torch.cat(
-                    [query_label.cuda()for query_label in sample_batch['query_labels']], dim=0)
+                    [query_label.cuda()for query_label in sample_batch['query_labels']], dim=0) # [B*queries, H, W]
 
-                query_pred = model(support_images, support_fg_mask, support_bg_mask,
-                                      query_images)
+                if config.mode_type == 'fewshot':
+                    support_fg_mask = [[shot['fg_mask'].float().cuda() for shot in way]
+                                        for way in sample_batch['support_mask']]
+                    support_bg_mask = [[shot['bg_mask'].float().cuda() for shot in way]
+                                        for way in sample_batch['support_mask']]
 
-                metric.record(np.array(query_pred.argmax(dim=1)[0].cpu()),
-                              np.array(query_labels[0].cpu()),
-                              labels=label_ids, n_run=run)
-        
+                    query_pred = model(support_images, support_fg_mask, support_bg_mask,
+                                        query_images)
+
+                    metric.record(np.array(query_pred.argmax(dim=1)[0].cpu()),
+                                np.array(query_labels[0].cpu()),
+                                labels=label_ids, n_run=run)
+                elif config.mode_type == 'metric':
+                    # TODO
+                    support_labels = torch.cat([torch.cat(way, dim=0) for way in sample_batch['support_labels']]).long().cuda() # [Bxwaysxshots, H, W]
+                    H, W = support_labels.shape[-2:]
+                    support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
+                    Hf, Wf = support_fts.shape[-2:]
+                    # downsample support_labels
+                    support_labels = F.interpolate(support_labels.unsqueeze(1).float(), size=(Hf, Wf), mode='nearest').long().flatten() # [B*ways*shots*Hf*Wf]
+                    # reshape support_fts and query_fts
+                    support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*Hf*Wf, C]
+                    query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
+                    # filter out unknown support labels
+                    support_ind = (support_labels != config.ignore_label)
+                    support_labels, support_fts = support_labels[support_ind], support_fts[support_ind]
+                    # use knn to do prediction
+                    query_pred = knn_predict(query_fts, support_fts, support_labels, classes=21, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
+                    query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze().long() # [B*queries, H, W]
+                    metric.record(np.array(query_pred.cpu()),
+                                np.array(query_labels[0].cpu()),
+                                labels=label_ids, n_run=run)
             classIoU, meanIoU = metric.get_mIoU(labels=sorted(labels), n_run=run)
             classIoU_binary, meanIoU_binary = metric.get_mIoU_binary(n_run=run)
             print(f'classIoU: {classIoU}')

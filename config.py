@@ -4,8 +4,7 @@ import re
 """Default configurations"""
 input_size = (417, 417)
 seed = 1234
-gpu_id = 0
-mode = 'train' # 'train' or 'test'
+mode = 'test' # 'train' or 'test'
 mode_type = 'metric' # 'metric' or 'fewshot'
 if mode == 'train':
     n_steps = 30000
@@ -15,7 +14,7 @@ if mode == 'train':
     ignore_label = 255
     print_interval = 100
     save_pred_every = 5000
-    n_samples = 500 # number of samples in each batch for metric learning
+    n_samples = 250 # number of samples in each batch for metric learning
     task = {
         'n_ways': 1,
         'n_shots': 1,
@@ -30,13 +29,11 @@ if mode == 'train':
 
 elif mode == 'test':
     notrain = False
-    snapshot = './runs/1_ways_1_shots/checkpoints/30000.pth'
+    snapshot = f'./runs/1_ways_1_shots/{mode_type}/checkpoints/30000.pth'
     n_runs = 5
     n_steps = 1000
     batch_size = 1
-    scribble_dilation = 0
-    bbox = False
-    scribble = False
+    ignore_label = 255
 
     # Set label_sets from the snapshot string
     label_sets = 0

@@ -36,7 +36,7 @@ class Metric(object):
             labels:
                 only count specific label, used when knowing all possible labels in advance
         """
-        assert pred.shape == target.shape
+        assert pred.shape == target.shape, f'{pred.shape}, {target.shape}'
 
         if self.n_runs == 1:
             n_run = 0

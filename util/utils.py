@@ -2,6 +2,8 @@
 import random
 import torch
 import numpy as np
+import torch
+import torch.nn.functional as F
 
 def set_seed(seed):
     """
@@ -53,3 +55,35 @@ def get_bbox(fg_mask, inst_mask):
         x_max = min(mask_idx[1].max(), fg_mask.shape[2] - 1)
         bg_bbox[0, y_min:y_max+1, x_min:x_max+1] = 0
     return fg_bbox, bg_bbox
+
+def knn_predict(feature, feature_bank, feature_bank_labels, classes, knn_k, knn_t=0.1):
+    """
+    Args:
+        feature: feature matrix [B, F]
+        feature_bank: feature bank matrix [N, F]
+        feature_bank_labels: feature bank labels [N]
+        knn_k: parameter k in knn
+        classes: number of classes C
+    Returns:
+        pred_labels [B]
+    """
+    # normalize before dot product
+    feature = F.normalize(feature, dim=1, p=2)
+    feature_bank = F.normalize(feature_bank, dim=1, p=2)
+    # compute cos similarity between each feature vector and feature bank ---> [B, N]
+    sim_matrix = torch.mm(feature, feature_bank.T)
+    # [B, K]
+    sim_weight, sim_indices = sim_matrix.topk(k=knn_k, dim=-1)
+    # [B, K]
+    sim_labels = torch.gather(feature_bank_labels.expand(feature.size(0), -1), dim=-1, index=sim_indices)
+    sim_weight = (sim_weight / knn_t).exp()
+
+    # counts for each class
+    one_hot_label = torch.zeros(feature.size(0) * knn_k, classes, device=sim_labels.device)
+    # [B*K, C]
+    one_hot_label = one_hot_label.scatter(dim=-1, index=sim_labels.view(-1, 1), value=1.0)
+    # weighted score ---> [B, C]
+    pred_scores = torch.sum(one_hot_label.view(feature.size(0), -1, classes) * sim_weight.unsqueeze(dim=-1), dim=1)
+
+    pred_labels = pred_scores.argmax(dim=-1)
+    return pred_labels

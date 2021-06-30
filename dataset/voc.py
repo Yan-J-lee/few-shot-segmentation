@@ -211,6 +211,7 @@ def fewShot(paired_sample, n_ways, n_shots, cnt_query):
 
             'support_images_t': support_images_t,
             'support_images': support_images,
+            'support_labels': support_labels,
             'support_mask': support_mask,
             'support_inst': support_insts,
 
