@@ -11,7 +11,6 @@ from torchvision.transforms import Compose
 from pytorch_metric_learning import losses, distances
 from torch.utils.tensorboard import SummaryWriter
 
-from models.fewshot import FewShotSegNet
 from models.metric import MetricSegNet
 from dataset.voc import voc_fewshot
 from dataset.transforms import RandomMirror, Resize, ToTensorNormalize
@@ -36,6 +35,7 @@ def train():
     ])
 
     n_ways, n_shots, n_queries = config.task['n_ways'], config.task['n_shots'], config.task['n_queries']
+    assert n_ways == 1, 'currently, the code only supports n_ways = 1'
     dataset = voc_fewshot(
         base_dir=config.path['data_dir'],
         split=config.path['data_split'],
@@ -81,29 +81,40 @@ def train():
         query_images = [query_image.cuda()
                         for query_image in sample_batch['query_images']] # queries x [B, 3, H, W]
         query_labels = torch.cat(
-            [query_label.long().cuda() for query_label in sample_batch['query_labels']], dim=0) # [queries*B, H, W]
+            [query_label.long().cuda() for query_label in sample_batch['query_labels']], dim=0).flatten() # [queries*B*H*W]
         
-        support_labels = torch.cat([torch.cat(way, dim=0) for way in sample_batch['support_labels']]).long().cuda() # [Bxwaysxshots, H, W]
-        support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
-        # downsample support labels and query labels
-        support_labels = F.interpolate(support_labels.unsqueeze(1).float(), size=support_fts.shape[-2:], mode='nearest').long().flatten() # [B*ways*shots*Hf*Wf]
-        query_labels = F.interpolate(query_labels.unsqueeze(1).float(), size=query_fts.shape[-2:], mode='nearest').long().flatten() # [B*queries*Hf*Wf]
-        # reshape support_fts and query_fts
-        support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*Hf*Wf, C]
-        query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
+        support_fg_mask = [[shot[f'fg_mask'].float().cuda() for shot in way]
+                           for way in sample_batch['support_mask']]
+        support_fg_mask = torch.cat([torch.cat(way, dim=0)
+                            for way in support_fg_mask], dim=0).flatten()  # [B*ways*shots*H*W]
+        support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, H, W], [queries*B, C, H, W]
+        # flatten support_fts and query_fts
+        support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*H*W, C]
+        query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*H*W, C]
         # filter out unknown labels
-        support_ind = (support_labels != config.ignore_label)
-        support_labels, support_fts = support_labels[support_ind], support_fts[support_ind]
-
         query_ind = (query_labels != config.ignore_label)
         query_labels, query_fts = query_labels[query_ind], query_fts[query_ind]
-        # random select n_sample samples in support_fts and query_fts
-        support_rnd_ind = np.random.choice(len(support_labels), config.n_samples)
-        support_labels, support_fts = support_labels[support_rnd_ind], support_fts[support_rnd_ind]
-
-        query_rnd_ind = np.random.choice(len(query_labels), config.n_samples)
-        query_labels, query_fts = query_labels[query_rnd_ind], query_fts[query_rnd_ind]
-        query_loss = criterion(torch.cat((support_fts, query_fts), dim=0), torch.cat((support_labels, query_labels), dim=0))
+        # random select n_sample samples in support_fts for both positive and negative samples
+        support_fg_pos, support_fg_neg = support_fg_mask[support_fg_mask == 1], support_fg_mask[support_fg_mask == 0]
+        support_fts_pos, support_fts_neg = support_fts[support_fg_mask == 1], support_fts[support_fg_mask == 0]
+        # positive samples for support images
+        support_ind_pos = np.random.choice(len(support_fg_pos), config.n_samples)
+        support_fg_pos, support_fts_pos = support_fg_pos[support_ind_pos], support_fts_pos[support_ind_pos]
+        # negative samples for support images
+        support_ind_neg = np.random.choice(len(support_fg_neg), config.n_samples)
+        support_fg_neg, support_fts_neg = support_fg_neg[support_ind_neg], support_fts_neg[support_ind_neg]
+        # random select n_sample samples in query_fts for both positive and negative samples
+        query_labels_pos, query_labels_neg = query_labels[query_labels == 1], query_labels[query_labels == 0]
+        query_fts_pos, query_fts_neg = query_fts[query_labels == 1], query_fts[query_labels == 0]
+        # positive samples for query images
+        query_ind_pos = np.random.choice(len(query_labels_pos), config.n_samples)
+        query_labels_pos, query_fts_pos = query_labels_pos[query_ind_pos], query_fts_pos[query_ind_pos]
+        # negative samples for query images
+        query_ind_neg = np.random.choice(len(query_labels_neg), config.n_samples)
+        query_labels_neg, query_fts_neg = query_labels_neg[query_ind_neg], query_fts_neg[query_ind_neg]
+        
+        query_loss = criterion(torch.cat((support_fts_pos, support_fts_neg, query_fts_pos, query_fts_neg), dim=0), 
+                                torch.cat((support_fg_pos, support_fg_neg, query_labels_pos, query_labels_neg), dim=0))
         loss = query_loss
         # Forward and Backward
         optimizer.zero_grad()
