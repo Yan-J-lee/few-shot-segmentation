@@ -4,8 +4,8 @@ import re
 """Default configurations"""
 input_size = (417, 417)
 seed = 1234
-mode = 'test' # 'train' or 'test'
-mode_type = 'metric' # 'metric' or 'fewshot'
+mode = 'train' # 'train' or 'test'
+
 if mode == 'train':
     n_steps = 30000
     label_sets = 0
@@ -29,7 +29,7 @@ if mode == 'train':
 
 elif mode == 'test':
     notrain = False
-    snapshot = f'./runs/1_ways_1_shots/{mode_type}/checkpoints/30000.pth'
+    snapshot = f'./runs/1_ways_1_shots/metric/checkpoints/30000.pth'
     n_runs = 5
     n_steps = 1000
     batch_size = 1

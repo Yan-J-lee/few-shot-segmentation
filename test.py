@@ -20,17 +20,12 @@ from util.utils import set_seed, CLASS_LABELS, knn_predict
 import config
 
 def test():
-    # sanity check
-    assert config.mode_type in ['fewshot', 'metric'], f'Unknown model type {config.mode_type}'
     # reproducibility
     set_seed(config.seed)
 
     # create model
     print('##### Create Model #####')
-    if config.mode_type == 'fewshot':
-        model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
-    elif config.mode_type == 'metric':
-        model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
+    model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
     if not config.notrain:
         model.load_state_dict(torch.load(config.snapshot))
     model.eval()
@@ -74,39 +69,25 @@ def test():
                 query_labels = torch.cat(
                     [query_label.cuda()for query_label in sample_batch['query_labels']], dim=0) # [B*queries, H, W]
 
-                if config.mode_type == 'fewshot':
-                    support_fg_mask = [[shot['fg_mask'].float().cuda() for shot in way]
-                                        for way in sample_batch['support_mask']]
-                    support_bg_mask = [[shot['bg_mask'].float().cuda() for shot in way]
-                                        for way in sample_batch['support_mask']]
-
-                    query_pred = model(support_images, support_fg_mask, support_bg_mask,
-                                        query_images)
-
-                    metric.record(np.array(query_pred.argmax(dim=1)[0].cpu()),
-                                np.array(query_labels[0].cpu()),
-                                labels=label_ids, n_run=run)
-                elif config.mode_type == 'metric':
-                    # TODO
-                    support_labels = torch.cat([torch.cat(way, dim=0) for way in sample_batch['support_labels']]).long().cuda() # [Bxwaysxshots, H, W]
-                    H, W = support_labels.shape[-2:]
-                    support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
-                    Hf, Wf = support_fts.shape[-2:]
-                    # downsample support_labels
-                    support_labels = F.interpolate(support_labels.unsqueeze(1).float(), size=(Hf, Wf), mode='nearest').long().flatten() # [B*ways*shots*Hf*Wf]
-                    # reshape support_fts and query_fts
-                    support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*Hf*Wf, C]
-                    query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
-                    # filter out unknown support labels
-                    support_ind = (support_labels != config.ignore_label)
-                    support_labels, support_fts = support_labels[support_ind], support_fts[support_ind]
-                    # use knn to do prediction
-                    query_pred = knn_predict(query_fts, support_fts, support_labels, classes=21, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
-                    query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze(1).long() # [B*queries, H, W]
-                    query_pred[query_pred != 0] = 1 # only works for ways = 1
-                    metric.record(np.array(query_pred[0].cpu()),
-                                np.array(query_labels[0].cpu()),
-                                labels=label_ids, n_run=run)
+                support_labels = torch.cat([torch.cat(way, dim=0) for way in sample_batch['support_labels']]).long().cuda() # [Bxwaysxshots, H, W]
+                H, W = support_labels.shape[-2:]
+                support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
+                Hf, Wf = support_fts.shape[-2:]
+                # downsample support_labels
+                support_labels = F.interpolate(support_labels.unsqueeze(1).float(), size=(Hf, Wf), mode='nearest').long().flatten() # [B*ways*shots*Hf*Wf]
+                # reshape support_fts and query_fts
+                support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*Hf*Wf, C]
+                query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
+                # filter out unknown support labels
+                support_ind = (support_labels != config.ignore_label)
+                support_labels, support_fts = support_labels[support_ind], support_fts[support_ind]
+                # use knn to do prediction
+                query_pred = knn_predict(query_fts, support_fts, support_labels, classes=21, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
+                query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze(1).long() # [B*queries, H, W]
+                query_pred[query_pred != 0] = 1 # only works for ways = 1
+                metric.record(np.array(query_pred[0].cpu()),
+                            np.array(query_labels[0].cpu()),
+                            labels=label_ids, n_run=run)
             classIoU, meanIoU = metric.get_mIoU(labels=sorted(labels), n_run=run)
             classIoU_binary, meanIoU_binary = metric.get_mIoU_binary(n_run=run)
             print(f'classIoU: {classIoU}')

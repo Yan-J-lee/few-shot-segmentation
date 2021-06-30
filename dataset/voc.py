@@ -184,14 +184,6 @@ def fewShot(paired_sample, n_ways, n_shots, cnt_query):
                              class_ids[way], class_ids)
                      for shot in range(n_shots)] for way in range(n_ways)]
 
-
-    ###### Generate query label (class indices in one episode, i.e. the ground truth)######
-    query_labels_tmp = [torch.zeros_like(x) for x in query_labels]
-    for i, query_label_tmp in enumerate(query_labels_tmp):
-        query_label_tmp[query_labels[i] == 255] = 255
-        for j in range(n_ways):
-            query_label_tmp[query_labels[i] == class_ids[j]] = j + 1
-
     ###### Generate query mask for each semantic class (including BG) ######
     # BG class
     query_masks = [[torch.where(query_label == 0,
@@ -217,7 +209,7 @@ def fewShot(paired_sample, n_ways, n_shots, cnt_query):
 
             'query_images_t': query_images_t,
             'query_images': query_images,
-            'query_labels': query_labels_tmp,
+            'query_labels': query_labels,
             'query_masks': query_masks,
             'query_cls_idx': query_cls_idx,
            }
