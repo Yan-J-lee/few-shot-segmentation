@@ -27,7 +27,7 @@ def test():
 
     # create model
     print('##### Create Model #####')
-    if config.mode_type == 'flowshot':
+    if config.mode_type == 'fewshot':
         model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
     elif config.mode_type == 'metric':
         model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
@@ -102,8 +102,9 @@ def test():
                     support_labels, support_fts = support_labels[support_ind], support_fts[support_ind]
                     # use knn to do prediction
                     query_pred = knn_predict(query_fts, support_fts, support_labels, classes=21, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
-                    query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze().long() # [B*queries, H, W]
-                    metric.record(np.array(query_pred.cpu()),
+                    query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze(1).long() # [B*queries, H, W]
+                    query_pred[query_pred != 0] = 1 # only works for ways = 1
+                    metric.record(np.array(query_pred[0].cpu()),
                                 np.array(query_labels[0].cpu()),
                                 labels=label_ids, n_run=run)
             classIoU, meanIoU = metric.get_mIoU(labels=sorted(labels), n_run=run)
