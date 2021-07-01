@@ -78,12 +78,13 @@ def test():
                 support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
                 Hf, Wf = support_fts.shape[-2:]
                 support_fts = F.interpolate(support_fts, size=(H, W), mode='bilinear', align_corners=True)
+                query_fts = F.interpolate(query_fts, size=(H//8, W//8), mode='bilinear', align_corners=True)
                 # reshape support_fts and query_fts
                 support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*H*W, C]
                 query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
                 # use knn to do prediction
-                query_pred = knn_predict(query_fts, support_fts, support_fg_mask.long().flatten(), classes=2, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
-                query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze(1).long() # [B*queries, H, W]
+                query_pred = knn_predict(query_fts, support_fts, support_fg_mask.long().flatten(), classes=2, knn_k=3).view(-1, H//8, W//8) # [B*queries, Hf, Wf]
+                query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='nearest').squeeze(1).long() # [B*queries, H, W]
                 # query_pred[query_pred != 1] = 0
                 metric.record(np.array(query_pred[0].cpu()),
                             np.array(query_labels[0].cpu()),

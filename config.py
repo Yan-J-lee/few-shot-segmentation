@@ -4,7 +4,7 @@ import re
 """Default configurations"""
 input_size = (417, 417)
 seed = 1234
-mode = 'train' # 'train' or 'test'
+mode = 'test' # 'train' or 'test'
 
 if mode == 'train':
     n_steps = 30000
