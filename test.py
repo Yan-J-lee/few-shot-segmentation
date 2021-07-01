@@ -77,16 +77,12 @@ def test():
                 H, W = support_fg_mask.shape[-2:]
                 support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
                 Hf, Wf = support_fts.shape[-2:]
-                # downsample support_fg_mask
-                support_fg_mask = F.interpolate(support_fg_mask.unsqueeze(1).float(), size=(Hf, Wf), mode='nearest').long().flatten() 
+                support_fts = F.interpolate(support_fts, size=(H, W), mode='bilinear', align_corners=True)
                 # reshape support_fts and query_fts
-                support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*Hf*Wf, C]
+                support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*H*W, C]
                 query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
-                # filter out unknown support labels
-                support_ind = (support_fg_mask != config.ignore_label)
-                support_fg_mask, support_fts = support_fg_mask[support_ind], support_fts[support_ind]
                 # use knn to do prediction
-                query_pred = knn_predict(query_fts, support_fts, support_fg_mask, classes=2, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
+                query_pred = knn_predict(query_fts, support_fts, support_fg_mask.long().flatten(), classes=2, knn_k=5).view(-1, Hf, Wf) # [B*queries, Hf, Wf]
                 query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='bilinear', align_corners=True).squeeze(1).long() # [B*queries, H, W]
                 # query_pred[query_pred != 1] = 0
                 metric.record(np.array(query_pred[0].cpu()),
