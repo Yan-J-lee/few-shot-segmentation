@@ -98,20 +98,24 @@ def train():
         support_fg_pos, support_fg_neg = support_fg_mask[support_fg_mask == 1], support_fg_mask[support_fg_mask == 0]
         support_fts_pos, support_fts_neg = support_fts[support_fg_mask == 1], support_fts[support_fg_mask == 0]
         # positive samples for support images
-        support_ind_pos = np.random.choice(len(support_fg_pos), config.n_samples)
-        support_fg_pos, support_fts_pos = support_fg_pos[support_ind_pos], support_fts_pos[support_ind_pos]
+        if len(support_fg_pos) > 0:
+            support_ind_pos = np.random.choice(len(support_fg_pos), config.n_samples)
+            support_fg_pos, support_fts_pos = support_fg_pos[support_ind_pos], support_fts_pos[support_ind_pos]
         # negative samples for support images
-        support_ind_neg = np.random.choice(len(support_fg_neg), config.n_samples)
-        support_fg_neg, support_fts_neg = support_fg_neg[support_ind_neg], support_fts_neg[support_ind_neg]
+        if len(support_fg_neg) > 0:
+            support_ind_neg = np.random.choice(len(support_fg_neg), config.n_samples)
+            support_fg_neg, support_fts_neg = support_fg_neg[support_ind_neg], support_fts_neg[support_ind_neg]
         # random select n_sample samples in query_fts for both positive and negative samples
         query_labels_pos, query_labels_neg = query_labels[query_labels == 1], query_labels[query_labels == 0]
         query_fts_pos, query_fts_neg = query_fts[query_labels == 1], query_fts[query_labels == 0]
         # positive samples for query images
-        query_ind_pos = np.random.choice(len(query_labels_pos), config.n_samples)
-        query_labels_pos, query_fts_pos = query_labels_pos[query_ind_pos], query_fts_pos[query_ind_pos]
+        if len(query_labels_pos) > 0:
+            query_ind_pos = np.random.choice(len(query_labels_pos), config.n_samples)
+            query_labels_pos, query_fts_pos = query_labels_pos[query_ind_pos], query_fts_pos[query_ind_pos]
         # negative samples for query images
-        query_ind_neg = np.random.choice(len(query_labels_neg), config.n_samples)
-        query_labels_neg, query_fts_neg = query_labels_neg[query_ind_neg], query_fts_neg[query_ind_neg]
+        if len(query_labels_neg) > 0:
+            query_ind_neg = np.random.choice(len(query_labels_neg), config.n_samples)
+            query_labels_neg, query_fts_neg = query_labels_neg[query_ind_neg], query_fts_neg[query_ind_neg]
         
         query_loss = criterion(torch.cat((support_fts_pos, support_fts_neg, query_fts_pos, query_fts_neg), dim=0), 
                                 torch.cat((support_fg_pos, support_fg_neg, query_labels_pos, query_labels_neg), dim=0))
