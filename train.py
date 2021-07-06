@@ -1,6 +1,7 @@
 from models.loss import ContrasiveLoss
+
+from datetime import datetime
 import os
-import numpy as np
 
 import torch
 import torch.nn as nn
@@ -42,7 +43,7 @@ def train():
     ])
 
     n_ways, n_shots, n_queries = config.task['n_ways'], config.task['n_shots'], config.task['n_queries']
-    assert n_ways == 1, 'currently, the code only supports n_ways = 1'
+    assert n_ways == 1 and n_shots == 1 and n_queries == 1, 'currently, the code only supports n_ways = 1, n_shots = 1 and n_queries = 1'
     dataset = voc_fewshot(
         base_dir=config.path['data_dir'],
         split=config.path['data_split'],
@@ -66,15 +67,16 @@ def train():
     # set optimizer
     print('##### Set optimizer #####')
     optimizer = torch.optim.SGD(model.parameters(), **config.optim)
-    scheduler = MultiStepLR(optimizer, milestones=config.lr_milestones, gamma=0.1)
+    scheduler = MultiStepLR(optimizer, milestones=config.lr_milestones, gamma=0.5)
     if config.model_type == 'fewshot':
         criterion = nn.CrossEntropyLoss(ignore_index=config.ignore_label).cuda() 
     else:
         criterion = ContrasiveLoss().cuda()
 
     # set logger
-    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots', config.model_type)
-    logger = SummaryWriter(log_dir=logdir)
+    suffix = '_sup' if config.supervised else '_unsup'
+    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots', config.model_type+suffix)
+    logger = SummaryWriter(log_dir=os.path.join(logdir, datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
     save_path = f'{logdir}/checkpoints'
     if not os.path.isdir(save_path):
         os.mkdir(save_path)
@@ -105,7 +107,10 @@ def train():
         else:
             support_fts, query_fts = model(support_images, query_images)
             support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
-            loss = criterion(support_fts, support_fg_mask) + criterion(query_fts, query_labels)
+            if config.supervised:
+                loss = criterion(support_fts, support_fg_mask) + criterion(query_fts, query_labels)
+            else:
+                loss = criterion(query_fts, query_labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()

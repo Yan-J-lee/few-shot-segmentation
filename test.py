@@ -1,7 +1,4 @@
 """Evaluation Script"""
-import os
-import shutil
-
 import tqdm
 import numpy as np
 import torch
@@ -49,7 +46,7 @@ def test():
             set_seed(config.seed + run)
 
             print(f'### Load data ###')
-            assert config.task['n_ways'] == 1, 'currently, the code only supports n_ways = 1'
+            assert config.task['n_ways'] == 1 and config.task['n_shots'] == 1 and config.task['n_queries'] == 1, 'currently, the code only supports n_ways = 1, n_shots = 1 and n_queries = 1'
             dataset = voc_fewshot(
                 base_dir=config.path['data_dir'],
                 split=config.path['data_split'],
@@ -85,17 +82,16 @@ def test():
                     query_pred = query_pred.argmax(dim=1)
                 else:
                     support_fts, query_fts = model(support_images, query_images)
-                    H, W = support_fg_mask[0][0].shape[-2:]
-                    C = support_fts.shape[1]
-                    support_fts = F.interpolate(support_fts, size=(H//8, W//8), mode='bilinear', align_corners=True) # [ways*shots*B, C, H, W]
                     support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
-                    support_fg_mask = F.interpolate(support_fg_mask.unsqueeze(1).float(), size=(H//8, W//8), mode='nearest').squeeze(1).long()
-                    query_fts = F.interpolate(query_fts, size=(H, W), mode='bilinear', align_corners=True) # [queries*B, C, H//8, W//8]
-                    Hf, Wf = query_fts.shape[-2:]
-                    query_fts, support_fts = query_fts.permute(0, 2, 3, 1).view(-1, C), support_fts.permute(0, 2, 3, 1).view(-1, C)
-                    query_pred = knn_predict(query_fts, support_fts, support_fg_mask.long().flatten(), classes=2, knn_k=3)
-                    query_pred = query_pred.view(-1, Hf, Wf)
-                    # query_pred = F.interpolate(query_pred.unsqueeze(1).float(), scale_factor=2, mode='bilinear', align_corners=True).squeeze(1).long()
+                    support_bg_mask = torch.cat([torch.cat(way, dim=0) for way in support_bg_mask], dim=0) # [waysxshotsxB, H, W]
+
+                    # get background feature and foreground feature from support image
+                    support_fts_pos = torch.sum(support_fts * support_fg_mask.unsqueeze(1), dim=(-2, -1), keepdim=True) / (support_fg_mask.sum(dim=(-2, -1), keepdim=True) + 1e-8)
+                    support_fts_neg = torch.sum(support_fts * support_bg_mask.unsqueeze(1), dim=(-2, -1), keepdim=True) / (support_bg_mask.sum(dim=(-2, -1), keepdim=True) + 1e-8)
+                    
+                    # choose the label according to the distance between foreground feature and background feature
+                    query_pred = torch.zeros_like(query_labels)
+                    query_pred[((query_fts - support_fts_pos)**2).sum(dim=1) < ((query_fts - support_fts_neg)**2).sum(dim=1)] = 1
                 
                 metric.record(np.array(query_pred[0].cpu()),
                             np.array(query_labels[0].cpu()),
