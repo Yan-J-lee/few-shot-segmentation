@@ -2,10 +2,10 @@ import os
 import re
 
 """Default configurations"""
-input_size = (384, 384)
+input_size = (417, 417) # (417, 417)
 seed = 1234
 mode = 'train' # 'train' or 'test'
-mode_type = 'metric' # 'fewshot' or 'metric'
+model_type = 'metric' # 'fewshot' or 'metric'
 if mode == 'train':
     n_steps = 30000
     label_sets = 0
@@ -22,14 +22,14 @@ if mode == 'train':
     }
 
     optim = {
-        'lr': 1e-6,
+        'lr': 5e-7,
         'momentum': 0.9,
         'weight_decay': 0.0001,
     }
 
 elif mode == 'test':
     notrain = False
-    snapshot = f'./runs/1_ways_1_shots/checkpoints/10000.pth'
+    snapshot = f'./runs/1_ways_1_shots/{model_type}/checkpoints/15000.pth'
     n_runs = 5
     n_steps = 1000
     batch_size = 1

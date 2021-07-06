@@ -24,10 +24,10 @@ def train():
     # reproducibility
     set_seed(config.seed)
     # sanity check
-    assert config.mode_type in ['fewshot', 'metric'], f'Unknown mode type: {config.mode_type}, expect [fewshot, metric]'
+    assert config.model_type in ['fewshot', 'metric'], f'Unknown mode type: {config.model_type}, expect [fewshot, metric]'
     # create model
     print('##### Create Model #####')
-    if config.mode_type == 'fewshot':
+    if config.model_type == 'fewshot':
         model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
     else:
         model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
@@ -67,13 +67,13 @@ def train():
     print('##### Set optimizer #####')
     optimizer = torch.optim.SGD(model.parameters(), **config.optim)
     scheduler = MultiStepLR(optimizer, milestones=config.lr_milestones, gamma=0.1)
-    if config.mode_type == 'fewshot':
+    if config.model_type == 'fewshot':
         criterion = nn.CrossEntropyLoss(ignore_index=config.ignore_label).cuda() 
     else:
         criterion = ContrasiveLoss().cuda()
 
     # set logger
-    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots', config.mode_type)
+    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots', config.model_type)
     logger = SummaryWriter(log_dir=logdir)
     save_path = f'{logdir}/checkpoints'
     if not os.path.isdir(save_path):
@@ -98,14 +98,14 @@ def train():
             [query_label.long().cuda() for query_label in sample_batch['query_labels']], dim=0)
 
         # Forward and Backward
-        if config.mode_type == 'fewshot':
+        if config.model_type == 'fewshot':
             query_pred = model(support_images, support_fg_mask, support_bg_mask,
                                         query_images)
             loss = criterion(query_pred, query_labels)
         else:
             support_fts, query_fts = model(support_images, query_images)
             support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
-            loss = criterion(torch.cat((support_fts, query_fts), dim=0), torch.cat((support_fg_mask, query_labels), dim=0))
+            loss = criterion(support_fts, support_fg_mask) + criterion(query_fts, query_labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()

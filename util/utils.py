@@ -67,9 +67,6 @@ def knn_predict(feature, feature_bank, feature_bank_labels, classes, knn_k, knn_
     Returns:
         pred_labels [B]
     """
-    # normalize before dot product
-    feature = F.normalize(feature, dim=1, p=2)
-    feature_bank = F.normalize(feature_bank, dim=1, p=2)
     # compute cos similarity between each feature vector and feature bank ---> [B, N]
     sim_matrix = torch.mm(feature, feature_bank.T)
     # [B, K]

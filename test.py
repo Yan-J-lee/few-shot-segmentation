@@ -23,10 +23,10 @@ def test():
     # reproducibility
     set_seed(config.seed)
     # sanity check
-    assert config.mode_type in ['fewshot', 'metric'], f'Unknown mode type: {config.mode_type}, expect [fewshot, metric]'
+    assert config.model_type in ['fewshot', 'metric'], f'Unknown mode type: {config.model_type}, expect [fewshot, metric]'
     # create model
     print('##### Create Model #####')
-    if config.mode_type == 'fewshot':
+    if config.model_type == 'fewshot':
         model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
     else:
         model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
@@ -79,13 +79,24 @@ def test():
                 support_bg_mask = [[shot['bg_mask'].float().cuda() for shot in way]
                                        for way in sample_batch['support_mask']]
                 
-                if config.mode_type == 'fewshot':
+                if config.model_type == 'fewshot':
                     query_pred = model(support_images, support_fg_mask, support_bg_mask,
                                         query_images)
                     query_pred = query_pred.argmax(dim=1)
                 else:
-                    raise NotImplementedError
-                # query_pred[query_pred != 1] = 0
+                    support_fts, query_fts = model(support_images, query_images)
+                    H, W = support_fg_mask[0][0].shape[-2:]
+                    C = support_fts.shape[1]
+                    support_fts = F.interpolate(support_fts, size=(H//8, W//8), mode='bilinear', align_corners=True) # [ways*shots*B, C, H, W]
+                    support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
+                    support_fg_mask = F.interpolate(support_fg_mask.unsqueeze(1).float(), size=(H//8, W//8), mode='nearest').squeeze(1).long()
+                    query_fts = F.interpolate(query_fts, size=(H, W), mode='bilinear', align_corners=True) # [queries*B, C, H//8, W//8]
+                    Hf, Wf = query_fts.shape[-2:]
+                    query_fts, support_fts = query_fts.permute(0, 2, 3, 1).view(-1, C), support_fts.permute(0, 2, 3, 1).view(-1, C)
+                    query_pred = knn_predict(query_fts, support_fts, support_fg_mask.long().flatten(), classes=2, knn_k=3)
+                    query_pred = query_pred.view(-1, Hf, Wf)
+                    # query_pred = F.interpolate(query_pred.unsqueeze(1).float(), scale_factor=2, mode='bilinear', align_corners=True).squeeze(1).long()
+                
                 metric.record(np.array(query_pred[0].cpu()),
                             np.array(query_labels[0].cpu()),
                             labels=label_ids, n_run=run)
