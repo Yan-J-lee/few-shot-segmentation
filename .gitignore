@@ -133,3 +133,6 @@ runs/
 
 # pre-trained model
 pretrained_model/
+
+# pycharm
+.idea/

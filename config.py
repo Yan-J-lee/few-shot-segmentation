@@ -2,10 +2,10 @@ import os
 import re
 
 """Default configurations"""
-input_size = (417, 417)
+input_size = (384, 384)
 seed = 1234
-mode = 'test' # 'train' or 'test'
-
+mode = 'train' # 'train' or 'test'
+mode_type = 'metric' # 'fewshot' or 'metric'
 if mode == 'train':
     n_steps = 30000
     label_sets = 0
@@ -14,7 +14,7 @@ if mode == 'train':
     ignore_label = 255
     print_interval = 100
     save_pred_every = 5000
-    n_samples = 120 # number of samples in each batch for metric learning
+    
     task = {
         'n_ways': 1,
         'n_shots': 1,
@@ -22,7 +22,7 @@ if mode == 'train':
     }
 
     optim = {
-        'lr': 1e-2,
+        'lr': 1e-6,
         'momentum': 0.9,
         'weight_decay': 0.0001,
     }
@@ -51,6 +51,6 @@ else:
 path = {
     'log_dir': './runs',
     'init_path': './pretrained_model/vgg16-397923af.pth',
-    'data_dir': '../data/VOCdevkit/VOC2012/',
+    'data_dir': '../../data/VOCdevkit/VOC2012/',
     'data_split': 'trainaug',
 }

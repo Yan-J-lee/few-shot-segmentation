@@ -49,5 +49,5 @@ class MetricSegNet(nn.Module):
         # upsample support_fts, qry_fts
         if self.training:
             support_fts = F.interpolate(support_fts, size=(H, W), mode='bilinear', align_corners=True) # [ways*shots*B, C, H, W]
-            qry_fts = F.interpolate(qry_fts, size=(H, W), mode='bilinear', align_corners=True) # [ways*shots*B, C, H, W]
+            qry_fts = F.interpolate(qry_fts, size=(H, W), mode='bilinear', align_corners=True) # [queries*B, C, H, W]
         return support_fts, qry_fts

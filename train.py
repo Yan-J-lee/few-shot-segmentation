@@ -1,29 +1,36 @@
+from models.loss import ContrasiveLoss
 import os
 import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import MultiStepLR
 from torchvision.transforms import Compose
-from pytorch_metric_learning import losses, distances
+
 from torch.utils.tensorboard import SummaryWriter
 
 from models.metric import MetricSegNet
+from models.fewshot import FewShotSegNet
+from models.loss import ContrasiveLoss
 from dataset.voc import voc_fewshot
 from dataset.transforms import RandomMirror, Resize, ToTensorNormalize
 from util.utils import set_seed, CLASS_LABELS
 import config
 
+
 def train():
     # reproducibility
     set_seed(config.seed)
-
+    # sanity check
+    assert config.mode_type in ['fewshot', 'metric'], f'Unknown mode type: {config.mode_type}, expect [fewshot, metric]'
     # create model
     print('##### Create Model #####')
-    model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
+    if config.mode_type == 'fewshot':
+        model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
+    else:
+        model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
     model.train()
 
     # prepare data
@@ -42,7 +49,7 @@ def train():
         transforms=transforms,
         to_tensor=ToTensorNormalize(),
         labels=labels,
-        max_iters=config.n_steps*config.batch_size,
+        max_iters=config.n_steps * config.batch_size,
         n_ways=n_ways,
         n_shots=n_shots,
         n_queries=n_queries
@@ -53,17 +60,20 @@ def train():
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=1,
-        pin_memory=True
+        pin_memory=False
     )
 
     # set optimizer
     print('##### Set optimizer #####')
     optimizer = torch.optim.SGD(model.parameters(), **config.optim)
     scheduler = MultiStepLR(optimizer, milestones=config.lr_milestones, gamma=0.1)
-    criterion = losses.TripletMarginLoss(distance=distances.CosineSimilarity())
+    if config.mode_type == 'fewshot':
+        criterion = nn.CrossEntropyLoss(ignore_index=config.ignore_label).cuda() 
+    else:
+        criterion = ContrasiveLoss().cuda()
 
     # set logger
-    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots')
+    logdir = os.path.join(config.path['log_dir'], f'{n_ways}_ways_{n_shots}_shots', config.mode_type)
     logger = SummaryWriter(log_dir=logdir)
     save_path = f'{logdir}/checkpoints'
     if not os.path.isdir(save_path):
@@ -74,71 +84,47 @@ def train():
     log_loss = {'loss': 0.0}
     print('##### Training #####')
     for i_iter, sample_batch in enumerate(trainloader):
-        # Prepare input 
+         # Prepare input
         support_images = [[shot.cuda() for shot in way]
-                          for way in sample_batch['support_images']] # ways x shots x [B, 3, H, W]
-
-        query_images = [query_image.cuda()
-                        for query_image in sample_batch['query_images']] # queries x [B, 3, H, W]
-        query_labels = torch.cat(
-            [query_label.long().cuda() for query_label in sample_batch['query_labels']], dim=0).flatten() # [queries*B*H*W]
-        
+                          for way in sample_batch['support_images']]
         support_fg_mask = [[shot[f'fg_mask'].float().cuda() for shot in way]
                            for way in sample_batch['support_mask']]
-        support_fg_mask = torch.cat([torch.cat(way, dim=0)
-                            for way in support_fg_mask], dim=0).flatten()  # [B*ways*shots*H*W]
-        support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, H, W], [queries*B, C, H, W]
-        # flatten support_fts and query_fts
-        support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*H*W, C]
-        query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*H*W, C]
-        # filter out unknown labels
-        query_ind = (query_labels != config.ignore_label)
-        query_labels, query_fts = query_labels[query_ind], query_fts[query_ind]
-        # random select n_sample samples in support_fts for both positive and negative samples
-        support_fg_pos, support_fg_neg = support_fg_mask[support_fg_mask == 1], support_fg_mask[support_fg_mask == 0]
-        support_fts_pos, support_fts_neg = support_fts[support_fg_mask == 1], support_fts[support_fg_mask == 0]
-        # positive samples for support images
-        if len(support_fg_pos) > 0:
-            support_ind_pos = np.random.choice(len(support_fg_pos), config.n_samples)
-            support_fg_pos, support_fts_pos = support_fg_pos[support_ind_pos], support_fts_pos[support_ind_pos]
-        # negative samples for support images
-        if len(support_fg_neg) > 0:
-            support_ind_neg = np.random.choice(len(support_fg_neg), config.n_samples)
-            support_fg_neg, support_fts_neg = support_fg_neg[support_ind_neg], support_fts_neg[support_ind_neg]
-        # random select n_sample samples in query_fts for both positive and negative samples
-        query_labels_pos, query_labels_neg = query_labels[query_labels == 1], query_labels[query_labels == 0]
-        query_fts_pos, query_fts_neg = query_fts[query_labels == 1], query_fts[query_labels == 0]
-        # positive samples for query images
-        if len(query_labels_pos) > 0:
-            query_ind_pos = np.random.choice(len(query_labels_pos), config.n_samples)
-            query_labels_pos, query_fts_pos = query_labels_pos[query_ind_pos], query_fts_pos[query_ind_pos]
-        # negative samples for query images
-        if len(query_labels_neg) > 0:
-            query_ind_neg = np.random.choice(len(query_labels_neg), config.n_samples)
-            query_labels_neg, query_fts_neg = query_labels_neg[query_ind_neg], query_fts_neg[query_ind_neg]
-        
-        query_loss = criterion(torch.cat((support_fts_pos, support_fts_neg, query_fts_pos, query_fts_neg), dim=0), 
-                                torch.cat((support_fg_pos, support_fg_neg, query_labels_pos, query_labels_neg), dim=0))
-        loss = query_loss
+        support_bg_mask = [[shot[f'bg_mask'].float().cuda() for shot in way]
+                           for way in sample_batch['support_mask']]
+
+        query_images = [query_image.cuda()
+                        for query_image in sample_batch['query_images']]
+        query_labels = torch.cat(
+            [query_label.long().cuda() for query_label in sample_batch['query_labels']], dim=0)
+
         # Forward and Backward
+        if config.mode_type == 'fewshot':
+            query_pred = model(support_images, support_fg_mask, support_bg_mask,
+                                        query_images)
+            loss = criterion(query_pred, query_labels)
+        else:
+            support_fts, query_fts = model(support_images, query_images)
+            support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
+            loss = criterion(torch.cat((support_fts, query_fts), dim=0), torch.cat((support_fg_mask, query_labels), dim=0))
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         scheduler.step()
 
         # Log loss
-        query_loss = query_loss.item()
-        logger.add_scalar('loss', query_loss, global_step=i_iter)
-        log_loss['loss'] += query_loss
+        loss = loss.item()
+        logger.add_scalar('loss', loss, global_step=i_iter)
+        log_loss['loss'] += loss
 
         # print loss and take snapshots
         if (i_iter + 1) % config.print_interval == 0:
             loss = log_loss['loss'] / (i_iter + 1)
-            print(f'step {i_iter+1}/{len(trainloader)}: loss: {loss}')
+            print(f'step {i_iter + 1}/{len(trainloader)}: loss: {loss}')
 
         if (i_iter + 1) % config.save_pred_every == 0:
             print('###### Save model ######')
             torch.save(model.state_dict(), os.path.join(save_path, f'{i_iter + 1}.pth'))
+
 
 if __name__ == '__main__':
     train()

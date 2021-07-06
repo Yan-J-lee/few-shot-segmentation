@@ -22,10 +22,14 @@ import config
 def test():
     # reproducibility
     set_seed(config.seed)
-
+    # sanity check
+    assert config.mode_type in ['fewshot', 'metric'], f'Unknown mode type: {config.mode_type}, expect [fewshot, metric]'
     # create model
     print('##### Create Model #####')
-    model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
+    if config.mode_type == 'fewshot':
+        model = FewShotSegNet(pretrained_path=config.path['init_path']).cuda()
+    else:
+        model = MetricSegNet(pretrained_path=config.path['init_path']).cuda()
     if not config.notrain:
         model.load_state_dict(torch.load(config.snapshot))
     model.eval()
@@ -70,25 +74,22 @@ def test():
                 query_labels = torch.cat(
                     [query_label.cuda()for query_label in sample_batch['query_labels']], dim=0) # [B*queries, H, W]
 
-                support_fg_mask = [[shot[f'fg_mask'].float().cuda() for shot in way]
-                           for way in sample_batch['support_mask']]
-                support_fg_mask = torch.cat([torch.cat(way, dim=0)
-                            for way in support_fg_mask], dim=0)  # [B*ways*shots*Hf*Wf]
-                H, W = support_fg_mask.shape[-2:]
-                support_fts, query_fts = model(support_images, query_images) # [ways*shots*B, C, Hf, Wf], [queries*B, C, Hf, Wf]
-                Hf, Wf = support_fts.shape[-2:]
-                support_fts = F.interpolate(support_fts, size=(H, W), mode='bilinear', align_corners=True)
-                query_fts = F.interpolate(query_fts, size=(H//8, W//8), mode='bilinear', align_corners=True)
-                # reshape support_fts and query_fts
-                support_fts = support_fts.view(-1, support_fts.shape[1]).contiguous() # [B*ways*shots*H*W, C]
-                query_fts = query_fts.view(-1, query_fts.shape[1]).contiguous() # [B*queries*Hf*Wf, C]
-                # use knn to do prediction
-                query_pred = knn_predict(query_fts, support_fts, support_fg_mask.long().flatten(), classes=2, knn_k=3).view(-1, H//8, W//8) # [B*queries, Hf, Wf]
-                query_pred = F.interpolate(query_pred.unsqueeze(1).float(), size=(H, W), mode='nearest').squeeze(1).long() # [B*queries, H, W]
+                support_fg_mask = [[shot['fg_mask'].float().cuda() for shot in way]
+                                       for way in sample_batch['support_mask']]
+                support_bg_mask = [[shot['bg_mask'].float().cuda() for shot in way]
+                                       for way in sample_batch['support_mask']]
+                
+                if config.mode_type == 'fewshot':
+                    query_pred = model(support_images, support_fg_mask, support_bg_mask,
+                                        query_images)
+                    query_pred = query_pred.argmax(dim=1)
+                else:
+                    raise NotImplementedError
                 # query_pred[query_pred != 1] = 0
                 metric.record(np.array(query_pred[0].cpu()),
                             np.array(query_labels[0].cpu()),
                             labels=label_ids, n_run=run)
+            
             classIoU, meanIoU = metric.get_mIoU(labels=sorted(labels), n_run=run)
             classIoU_binary, meanIoU_binary = metric.get_mIoU_binary(n_run=run)
             print(f'classIoU: {classIoU}')
