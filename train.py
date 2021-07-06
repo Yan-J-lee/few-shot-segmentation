@@ -110,7 +110,7 @@ def train():
             if config.supervised:
                 loss = criterion(torch.cat((support_fts, query_fts), dim=0), torch.cat((support_fg_mask, query_labels), dim=0))
             else:
-                loss = criterion(query_fts, query_labels)
+                loss = criterion(query_fts, query_labels) + criterion(support_fts, support_fg_mask)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()

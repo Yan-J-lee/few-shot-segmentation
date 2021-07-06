@@ -33,7 +33,8 @@ def test():
 
     # prepare data
     print('##### Prepare data #####')
-    labels = CLASS_LABELS['VOC']['all'] - CLASS_LABELS['VOC'][config.label_sets]
+
+    labels = CLASS_LABELS['VOC']['all']
     transforms = Compose([
         Resize(size=config.input_size)
     ])
@@ -83,11 +84,10 @@ def test():
                 else:
                     support_fts, query_fts = model(support_images, query_images)
                     support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
-                    support_bg_mask = torch.cat([torch.cat(way, dim=0) for way in support_bg_mask], dim=0) # [waysxshotsxB, H, W]
 
                     # get background feature and foreground feature from support image
                     support_fts_pos = torch.sum(support_fts * support_fg_mask.unsqueeze(1), dim=(-2, -1), keepdim=True) / (support_fg_mask.sum(dim=(-2, -1), keepdim=True) + 1e-8)
-                    support_fts_neg = torch.sum(support_fts * support_bg_mask.unsqueeze(1), dim=(-2, -1), keepdim=True) / (support_bg_mask.sum(dim=(-2, -1), keepdim=True) + 1e-8)
+                    support_fts_neg = torch.sum(support_fts * (1-support_fg_mask).unsqueeze(1), dim=(-2, -1), keepdim=True) / ((1-support_fg_mask).sum(dim=(-2, -1), keepdim=True) + 1e-8)
                     
                     # choose the label according to the distance between foreground feature and background feature
                     query_pred = torch.zeros_like(query_labels)
