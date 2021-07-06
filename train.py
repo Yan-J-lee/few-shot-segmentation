@@ -108,7 +108,7 @@ def train():
             support_fts, query_fts = model(support_images, query_images)
             support_fg_mask = torch.cat([torch.cat(way, dim=0) for way in support_fg_mask], dim=0) # [waysxshotsxB, H, W]
             if config.supervised:
-                loss = criterion(support_fts, support_fg_mask) + criterion(query_fts, query_labels)
+                loss = criterion(torch.cat((support_fts, query_fts), dim=0), torch.cat((support_fg_mask, query_labels), dim=0))
             else:
                 loss = criterion(query_fts, query_labels)
         optimizer.zero_grad()

@@ -1,5 +1,5 @@
 """Default configurations"""
-input_size = (417, 417) # (417, 417)
+input_size = (384, 384) # (417, 417)
 seed = 1234
 mode = 'train' # 'train' or 'test'
 model_type = 'metric' # 'fewshot' or 'metric'
